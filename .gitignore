@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Runtime data (browser profile, cookies, screenshots)
+data/
+
+# Environment variables (contains secrets)
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

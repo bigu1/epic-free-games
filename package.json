@@ -1,0 +1,38 @@
+{
+  "name": "epic-free-games",
+  "version": "0.1.0",
+  "description": "Automatically claim free games from the Epic Games Store. Works as an OpenClaw Skill or standalone CLI.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "epic-free-games": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "list": "node src/index.js --list",
+    "claim": "node src/index.js --claim",
+    "login": "node src/index.js --login",
+    "test": "node --test src/__tests__/"
+  },
+  "keywords": [
+    "epic-games",
+    "free-games",
+    "auto-claim",
+    "playwright",
+    "openclaw",
+    "openclaw-skill"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/epic-free-games"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0",
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.0"
+  }
+}

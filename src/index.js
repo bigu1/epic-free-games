@@ -12,10 +12,11 @@
 
 import { cfg } from './config.js';
 import { fetchFreeGames } from './epic-api.js';
-import { launchBrowser, isLoggedIn, login, claimFreeGames } from './claimer.js';
+import { launchBrowser, isLoggedIn, getLoginUser, login, claimFreeGames } from './claimer.js';
 import { notify, notifyClaimResults } from './notifier.js';
 import { datetime, jsonDb, formatGameList } from './utils.js';
 import path from 'path';
+import { existsSync } from 'fs';
 
 const args = process.argv.slice(2);
 const command = args.find((a) => a.startsWith('--'))?.replace('--', '') || 'claim';
@@ -32,6 +33,9 @@ async function main() {
       break;
     case 'claim':
       await cmdClaim();
+      break;
+    case 'status':
+      await cmdStatus();
       break;
     case 'help':
     case 'h':
@@ -142,6 +146,62 @@ async function cmdClaim() {
   }
 }
 
+/**
+ * --status: Check login status and claim history.
+ */
+async function cmdStatus() {
+  console.log('📊 Epic Free Games — Status\n');
+
+  // Check browser profile existence
+  const profileExists = existsSync(cfg.dir.browser);
+  console.log(`Browser profile: ${profileExists ? '✅ exists' : '❌ not found'} (${cfg.dir.browser})`);
+
+  // Check login
+  if (profileExists) {
+    const { context, page } = await launchBrowser();
+    try {
+      const loggedIn = await isLoggedIn(page);
+      if (loggedIn) {
+        const user = await getLoginUser(page);
+        console.log(`Login status:   ✅ logged in as "${user || 'unknown'}"`);
+      } else {
+        console.log('Login status:   ❌ not logged in (run --login to authenticate)');
+      }
+    } finally {
+      await context.close();
+    }
+  } else {
+    console.log('Login status:   ❌ no session (run --login first)');
+  }
+
+  // Show claim history
+  const claimedPath = path.join(cfg.dir.data, 'claimed.json');
+  if (existsSync(claimedPath)) {
+    const db = jsonDb(claimedPath, { history: [] });
+    const total = db.data.history.length;
+    console.log(`\nClaim history:  ${total} run(s) recorded`);
+    if (total > 0) {
+      const last = db.data.history[total - 1];
+      console.log(`Last run:       ${last.date}`);
+      for (const r of last.results || []) {
+        const icon = r.status === 'claimed' ? '🎮' : r.status === 'already_owned' ? '📦' : '❌';
+        console.log(`  ${icon} ${r.title} — ${r.status}`);
+      }
+    }
+  } else {
+    console.log('\nClaim history:  no records yet');
+  }
+
+  // Show current free games
+  console.log('');
+  try {
+    const { current } = await fetchFreeGames({ locale: cfg.locale, country: cfg.country });
+    console.log(`Free this week: ${current.map((g) => g.title).join(', ') || '(none)'}`);
+  } catch {
+    console.log('Free this week: (failed to fetch)');
+  }
+}
+
 function showHelp() {
   console.log(`
 epic-free-games — Auto-claim free games from Epic Games Store
@@ -153,6 +213,7 @@ Commands:
   --list     List current & upcoming free games (no login required)
   --login    Interactive login (opens visible browser window)
   --claim    Claim all available free games (default)
+  --status   Check login status and claim history
   --help     Show this help
 
 Options:

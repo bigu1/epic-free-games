@@ -13,6 +13,10 @@ const URL_LOGIN =
   'https://www.epicgames.com/id/login?lang=en-US&noHostRedirect=true&redirectUrl=' +
   encodeURIComponent(URL_CLAIM);
 
+// Retry config
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 5000;
+
 /**
  * Launch persistent browser context.
  * @param {object} [opts]
@@ -47,16 +51,31 @@ export async function launchBrowser({ headless } = {}) {
 
 /**
  * Check if the user is logged in to Epic Games Store.
+ * @returns {Promise<boolean>}
  */
 export async function isLoggedIn(page) {
   try {
     await page.goto(URL_CLAIM, { waitUntil: 'domcontentloaded', timeout: cfg.timeout });
-    // Epic uses an egs-navigation web component with isloggedin attribute
     const nav = page.locator('egs-navigation');
     const loggedIn = await nav.getAttribute('isloggedin', { timeout: 10000 }).catch(() => null);
     return loggedIn === 'true';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Get the display name of the currently logged-in user.
+ * @returns {Promise<string|null>}
+ */
+export async function getLoginUser(page) {
+  try {
+    const nav = page.locator('egs-navigation');
+    const loggedIn = await nav.getAttribute('isloggedin', { timeout: 5000 }).catch(() => null);
+    if (loggedIn !== 'true') return null;
+    return await nav.getAttribute('displayname', { timeout: 5000 }).catch(() => null);
+  } catch {
+    return null;
   }
 }
 
@@ -161,9 +180,17 @@ export async function claimFreeGames(page) {
   }
   console.log(`Found ${urls.length} free game(s): ${urls.join(', ')}`);
 
-  // Claim each game
+  // Claim each game with retry
   for (const url of urls) {
-    const result = await claimSingleGame(page, url);
+    let result;
+    for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+      result = await claimSingleGame(page, url);
+      if (result.status !== 'error' && result.status !== 'unknown') break;
+      if (attempt <= MAX_RETRIES) {
+        console.log(`  ↻ Retrying (${attempt}/${MAX_RETRIES}) in ${RETRY_DELAY_MS / 1000}s...`);
+        await sleep(RETRY_DELAY_MS);
+      }
+    }
     results.push(result);
   }
 
@@ -179,14 +206,25 @@ async function claimSingleGame(page, url) {
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
 
-    // Get game title
-    result.title = await page
-      .locator('h1')
-      .first()
-      .innerText({ timeout: 10000 })
-      .catch(() => url.split('/').pop() || 'Unknown');
+    // Detect bundle vs single game and get title
+    const isBundle = (await page.locator('span:text-is("About Bundle")').count()) > 0;
+    if (isBundle) {
+      // Bundle title is in "Buy <title>" text near the purchase button
+      result.title = await page
+        .locator('span:has-text("Buy"):left-of([data-testid="purchase-cta-button"])')
+        .first()
+        .innerText({ timeout: 10000 })
+        .then((t) => t.replace(/^Buy\s+/i, ''))
+        .catch(() => url.split('/').pop() || 'Unknown Bundle');
+    } else {
+      result.title = await page
+        .locator('h1')
+        .first()
+        .innerText({ timeout: 10000 })
+        .catch(() => url.split('/').pop() || 'Unknown');
+    }
 
-    console.log(`\nProcessing: ${result.title}`);
+    console.log(`\nProcessing: ${result.title}${isBundle ? ' (bundle)' : ''}`);
 
     // Find the purchase button and check its state
     const purchaseBtn = page
@@ -238,6 +276,17 @@ async function claimSingleGame(page, url) {
     page.click('button:has-text("Continue")').catch(() => {});
     // Handle "you already own something in this bundle"
     page.click('button:has-text("Yes, buy now")').catch(() => {});
+
+    // Handle End User License Agreement (only needed once per EULA)
+    page
+      .locator('input#agree')
+      .waitFor({ timeout: 3000 })
+      .then(async () => {
+        console.log('  Accepting End User License Agreement...');
+        await page.locator('input#agree').check();
+        await page.locator('button:has-text("Accept")').click();
+      })
+      .catch(() => {});
 
     // Wait for purchase iframe
     await page.waitForSelector('#webPurchaseContainer iframe', { timeout: 15000 });

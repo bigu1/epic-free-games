@@ -23,11 +23,12 @@ const RETRY_DELAY_MS = 5000;
  * @param {boolean} [opts.headless] - Override headless mode
  * @returns {Promise<{ context: import('playwright').BrowserContext, page: import('playwright').Page }>}
  */
-export async function launchBrowser({ headless } = {}) {
+export async function launchBrowser({ headless, browserDir } = {}) {
   const useHeadless = headless ?? cfg.headless;
-  console.log(`Launching browser (headless: ${useHeadless})...`);
+  const profileDir = browserDir || cfg.dir.browser;
+  console.log(`Launching browser (headless: ${useHeadless}, profile: ${profileDir})...`);
 
-  const context = await chromium.launchPersistentContext(cfg.dir.browser, {
+  const context = await chromium.launchPersistentContext(profileDir, {
     headless: useHeadless,
     viewport: { width: cfg.width, height: cfg.height },
     locale: 'en-US',
@@ -38,9 +39,32 @@ export async function launchBrowser({ headless } = {}) {
     ],
   });
 
-  // Apply stealth: remove navigator.webdriver flag
+  // Apply stealth measures to avoid bot detection
   await context.addInitScript(() => {
+    // Remove webdriver flag
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+    // Fake plugins (headless browsers have none)
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [1, 2, 3, 4, 5],
+    });
+
+    // Fake languages
+    Object.defineProperty(navigator, 'languages', {
+      get: () => ['en-US', 'en'],
+    });
+
+    // Override permissions query for notifications
+    const originalQuery = window.navigator.permissions?.query;
+    if (originalQuery) {
+      window.navigator.permissions.query = (params) =>
+        params.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : originalQuery(params);
+    }
+
+    // Prevent detection via chrome property
+    window.chrome = { runtime: {} };
   });
 
   const page = context.pages()[0] || (await context.newPage());
@@ -287,6 +311,19 @@ async function claimSingleGame(page, url) {
         await page.locator('button:has-text("Accept")').click();
       })
       .catch(() => {});
+
+    // Handle Parental Control PIN if configured
+    if (cfg.eg_parentalpin) {
+      page
+        .locator('input[type="password"][autocomplete="off"]')
+        .waitFor({ timeout: 3000 })
+        .then(async (el) => {
+          console.log('  Entering parental control PIN...');
+          await el.fill(cfg.eg_parentalpin);
+          await page.locator('button:has-text("Continue")').click();
+        })
+        .catch(() => {});
+    }
 
     // Wait for purchase iframe
     await page.waitForSelector('#webPurchaseContainer iframe', { timeout: 15000 });

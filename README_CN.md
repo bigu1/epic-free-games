@@ -131,6 +131,46 @@ epic-free-games/
     └── screenshots/      # 调试截图
 ```
 
+## Docker
+
+```bash
+# 构建并运行
+docker compose build
+docker compose run epic-free-games node src/index.js --list
+
+# 登录（需要交互式终端）
+docker compose run epic-free-games node src/index.js --login
+
+# 领取
+docker compose up
+```
+
+浏览器 profile 和领取记录通过 Docker volume 持久化在 `./data/` 目录。
+
+## 多账号
+
+创建 `data/config.json`：
+
+```json
+{
+  "accounts": [
+    { "email": "user1@example.com", "password": "pass1", "otpkey": "" },
+    { "email": "user2@example.com", "password": "pass2", "otpkey": "TOTP_SECRET" }
+  ]
+}
+```
+
+每个账号有独立的浏览器 profile 目录，脚本会依次为所有账号领取免费游戏。
+
+## GitHub Actions
+
+本仓库包含 GitHub Actions 工作流，每周四自动运行。使用方法：
+
+1. Fork 本仓库
+2. 进入 Settings → Secrets and variables → Actions
+3. 添加 Secrets：`EG_EMAIL`、`EG_PASSWORD`、`EG_OTPKEY`（可选）、`WEBHOOK_URL`（可选）
+4. 在 Actions 页面启用工作流
+
 ## 常见问题
 
 ### "Not logged in" 错误

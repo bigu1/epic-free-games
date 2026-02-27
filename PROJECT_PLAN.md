@@ -93,60 +93,65 @@ epic-free-games/
 
 ## 开发计划
 
-### Phase 1: 基础框架 ✅→🔨
+### Phase 1: 基础框架 ✅
 
 **目标**: 查询免费游戏 + 项目骨架
 
 - [x] 项目结构搭建
-- [ ] package.json + 依赖声明
-- [ ] config.js — 配置管理
-- [ ] epic-api.js — 查询当前免费游戏（公开 API，无需认证）
-- [ ] 基础 CLI 入口 (node src/index.js --list)
-- [ ] README.md 初版
-- [ ] .gitignore, LICENSE, .env.example
+- [x] package.json + 依赖声明
+- [x] config.js — 配置管理
+- [x] epic-api.js — 查询当前免费游戏（公开 API，无需认证）
+- [x] 基础 CLI 入口 (node src/index.js --list)
+- [x] README.md 初版
+- [x] .gitignore, LICENSE, .env.example
 
-### Phase 2: 浏览器自动化领取
+### Phase 2: 浏览器自动化领取 ✅ (待实测)
 
 **目标**: 完成核心领取流程
 
-- [ ] auth.js — 首次登录 + session 持久化
-- [ ] claimer.js — 浏览器自动化领取（Playwright）
-  - [ ] 检测 "Free Now" 游戏
-  - [ ] 点击 "Get" → 处理 purchase iframe → "Place Order"
-  - [ ] 处理年龄验证、EULA、mature content 等弹窗
-  - [ ] 检测 "Already in library" 状态
-- [ ] claimed.json 记录管理
-- [ ] 错误截图保存
+- [x] login 功能 — 首次登录 + session 持久化 (集成在 claimer.js)
+- [x] claimer.js — 浏览器自动化领取（Playwright）
+  - [x] 检测 "Free Now" 游戏
+  - [x] 点击 "Get" → 处理 purchase iframe → "Place Order"
+  - [x] 处理年龄验证、EULA、mature content 等弹窗
+  - [x] 检测 "Already in library" 状态
+  - [x] Bundle 检测与标题处理
+- [x] claimed.json 记录管理
+- [x] 错误截图保存
+- [ ] **⏳ 实际登录 + 领取测试**（需要用户执行 --login）
 
-### Phase 3: 通知 + 健壮性
+### Phase 3: 通知 + 健壮性 ✅
 
 **目标**: 可靠的通知和错误处理
 
-- [ ] notifier.js — 通知系统
-  - [ ] stdout（控制台输出）
-  - [ ] webhook（通用，可对接 Telegram/Discord/Bark 等）
-- [ ] hCaptcha 检测 + 通知用户手动处理
-- [ ] Cookie 过期检测 + 重新登录通知
-- [ ] 重试逻辑
+- [x] notifier.js — 通知系统
+  - [x] stdout（控制台输出）
+  - [x] webhook（通用，可对接 Telegram/Discord/Bark 等）
+- [x] hCaptcha 检测 + 通知用户手动处理
+- [x] Cookie 过期检测 + 重新登录通知
+- [x] 重试逻辑（最多 2 次重试）
+- [x] --status 命令（登录状态 + 领取历史 + 当前免费游戏）
 
-### Phase 4: OpenClaw Skill 集成
+### Phase 4: OpenClaw Skill 集成 ✅
 
 **目标**: 打包成可分享的 Skill
 
-- [ ] SKILL.md — Skill 描述文件
-- [ ] scripts/setup.sh — 一键配置
-- [ ] scripts/claim.sh — Cron 调用入口
-- [ ] scripts/login.sh — 手动登录
-- [ ] cron 配置建议（每周四 00:30 执行）
-- [ ] 文档完善（README + README_CN）
+- [x] SKILL.md — Skill 描述文件
+- [x] scripts/setup.sh — 一键配置
+- [x] scripts/claim.sh — Cron 调用入口
+- [x] scripts/login.sh — 手动登录
+- [x] cron 配置建议（每周四 00:30 执行）
+- [x] 文档完善（README + README_CN）
 
-### Phase 5: 高级功能（可选）
+### Phase 5: 高级功能
 
-- [ ] 多账号支持
-- [ ] AI 验证码 solver 集成（Gemini/GPT-4V）
-- [ ] DLC 自动领取
-- [ ] Docker 部署支持
-- [ ] GitHub Actions 定时运行支持
+- [x] 多账号支持（data/config.json + 独立 browser profile）
+- [x] Docker 部署支持（Dockerfile + docker-compose.yml）
+- [x] GitHub Actions 定时运行支持（.github/workflows/）
+- [x] Parental Control PIN 支持
+- [x] 增强反检测 stealth（plugins/languages/chrome 伪装）
+- [ ] AI 验证码 solver 集成（Gemini/GPT-4V）— 可选
+- [ ] DLC 自动领取 — 可选
 
 ## 风险与缓解
 

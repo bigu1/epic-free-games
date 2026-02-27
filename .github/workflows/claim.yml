@@ -1,0 +1,56 @@
+name: Claim Free Games
+
+on:
+  # Run every Thursday at 17:00 UTC (Epic updates around 16:00 UTC on Thursdays)
+  schedule:
+    - cron: '0 17 * * 4'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Restore browser profile
+        uses: actions/cache@v4
+        with:
+          path: data/browser-profile
+          key: epic-browser-profile-${{ github.repository_owner }}
+
+      - name: Claim free games
+        env:
+          EG_EMAIL: ${{ secrets.EG_EMAIL }}
+          EG_PASSWORD: ${{ secrets.EG_PASSWORD }}
+          EG_OTPKEY: ${{ secrets.EG_OTPKEY }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          HEADLESS: '1'
+        run: node src/index.js --claim
+
+      - name: Save browser profile
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/browser-profile
+          key: epic-browser-profile-${{ github.repository_owner }}-${{ github.run_id }}
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: data/screenshots/
+          retention-days: 7

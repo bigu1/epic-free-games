@@ -86,15 +86,13 @@ async function cmdLogin() {
 }
 
 /**
- * --claim: Check for free games and claim them.
+ * --claim: Check for free games and claim them (supports multi-account).
  */
 async function cmdClaim() {
   // First, check what's available via public API
   console.log('Checking available free games...');
-  let freeGames;
   try {
     const { current } = await fetchFreeGames({ locale: cfg.locale, country: cfg.country });
-    freeGames = current;
     console.log(
       `Found ${current.length} free game(s): ${current.map((g) => g.title).join(', ') || '(none)'}`
     );
@@ -107,43 +105,57 @@ async function cmdClaim() {
     console.log('Will try to detect free games via browser instead.');
   }
 
-  // Launch browser and check login status
-  const { context, page } = await launchBrowser();
-  try {
-    const loggedIn = await isLoggedIn(page);
-    if (!loggedIn) {
-      console.log('Not logged in. Attempting login...');
-      if (cfg.eg_email && cfg.eg_password) {
-        await login(page);
-      } else {
-        await notify(
-          'Epic Games session expired. Please run: node src/index.js --login',
-          { level: 'warning' }
-        );
-        console.error(
-          '\n❌ Not logged in and no credentials configured.\n' +
-            'Run with --login first, or set EG_EMAIL and EG_PASSWORD in .env'
-        );
-        return;
+  // Multi-account: iterate over configured accounts (or default single session)
+  const accountCount = Math.max(cfg.accounts.length, 1);
+  const allResults = [];
+
+  for (let i = 0; i < accountCount; i++) {
+    const account = cfg.accounts[i];
+    const label = account?.email || 'default';
+    if (accountCount > 1) console.log(`\n${'='.repeat(50)}\nAccount ${i + 1}/${accountCount}: ${label}\n${'='.repeat(50)}`);
+
+    const browserDir = cfg.getBrowserDir(i);
+    const { context, page } = await launchBrowser({ browserDir });
+    try {
+      const loggedIn = await isLoggedIn(page);
+      if (!loggedIn) {
+        console.log('Not logged in. Attempting login...');
+        if (account?.email && account?.password) {
+          // Temporarily set credentials for this account
+          cfg.eg_email = account.email;
+          cfg.eg_password = account.password;
+          cfg.eg_otpkey = account.otpkey || '';
+          await login(page);
+        } else {
+          await notify(
+            `Epic Games session expired for ${label}. Please run: node src/index.js --login`,
+            { level: 'warning' }
+          );
+          console.error(
+            `\n❌ Not logged in for ${label} and no credentials configured.\n` +
+              'Run with --login first, or set credentials in .env / data/config.json'
+          );
+          continue;
+        }
       }
+
+      const results = await claimFreeGames(page);
+      allResults.push({ account: label, results });
+
+      // Send per-account notification
+      await notifyClaimResults(results);
+    } finally {
+      await context.close();
     }
-
-    // Claim games
-    const results = await claimFreeGames(page);
-
-    // Save results to claimed.json
-    const db = jsonDb(path.join(cfg.dir.data, 'claimed.json'), { history: [] });
-    db.data.history.push({
-      date: datetime(),
-      results,
-    });
-    db.save();
-
-    // Send notification
-    await notifyClaimResults(results);
-  } finally {
-    await context.close();
   }
+
+  // Save all results to claimed.json
+  const db = jsonDb(path.join(cfg.dir.data, 'claimed.json'), { history: [] });
+  db.data.history.push({
+    date: datetime(),
+    accounts: allResults,
+  });
+  db.save();
 }
 
 /**

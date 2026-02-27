@@ -1,0 +1,25 @@
+name: List Free Games
+
+on:
+  # Run every Thursday at 16:30 UTC (before claim workflow)
+  schedule:
+    - cron: '30 16 * * 4'
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: List free games
+        run: node src/index.js --list --json

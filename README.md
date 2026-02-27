@@ -131,6 +131,53 @@ epic-free-games/
     └── screenshots/      # Debug screenshots
 ```
 
+## Docker
+
+```bash
+# Build and run
+docker compose build
+docker compose run epic-free-games node src/index.js --list
+
+# Login (needs interactive terminal)
+docker compose run epic-free-games node src/index.js --login
+
+# Claim
+docker compose run epic-free-games
+
+# Or use pre-built command
+docker compose up
+```
+
+Browser profile and claim history are persisted in `./data/` via Docker volume.
+
+## Multiple Accounts
+
+Create `data/config.json`:
+
+```json
+{
+  "accounts": [
+    { "email": "user1@example.com", "password": "pass1", "otpkey": "" },
+    { "email": "user2@example.com", "password": "pass2", "otpkey": "TOTP_SECRET" }
+  ]
+}
+```
+
+Each account gets its own browser profile directory. The script will claim free games for all accounts sequentially.
+
+> See `config.json.example` for the template.
+
+## GitHub Actions
+
+This repo includes a GitHub Actions workflow that runs every Thursday. To use it:
+
+1. Fork this repo
+2. Go to Settings → Secrets and variables → Actions
+3. Add secrets: `EG_EMAIL`, `EG_PASSWORD`, `EG_OTPKEY` (optional), `WEBHOOK_URL` (optional)
+4. Enable the workflow in the Actions tab
+
+> **Note**: GitHub Actions runs in a fresh environment each time, so you need to provide credentials via secrets. The browser profile is cached between runs.
+
 ## Troubleshooting
 
 ### "Not logged in" error

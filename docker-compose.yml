@@ -1,0 +1,19 @@
+services:
+  epic-free-games:
+    build: .
+    container_name: epic-free-games
+    restart: "no"
+    volumes:
+      - ./data:/app/data        # Persistent browser profile + claim history
+    environment:
+      - DATA_DIR=/app/data
+      # Uncomment and fill in your credentials:
+      # - EG_EMAIL=your@email.com
+      # - EG_PASSWORD=your_password
+      # - EG_OTPKEY=your_totp_secret
+      # - WEBHOOK_URL=https://your-webhook
+      # - HEADLESS=1
+    # Default command: claim free games
+    # Override for other commands:
+    #   docker compose run epic-free-games node src/index.js --list
+    #   docker compose run epic-free-games node src/index.js --status

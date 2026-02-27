@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -16,11 +16,64 @@ function ensureDir(dir) {
 
 const dataDir = path.resolve(process.env.DATA_DIR || path.join(projectRoot, 'data'));
 
+/**
+ * Load accounts from config file or environment variables.
+ * Config file (data/config.json) takes priority.
+ *
+ * Config file format:
+ * {
+ *   "accounts": [
+ *     { "email": "user1@example.com", "password": "xxx", "otpkey": "" },
+ *     { "email": "user2@example.com", "password": "yyy", "otpkey": "TOTP_SECRET" }
+ *   ]
+ * }
+ *
+ * If no config file, falls back to EG_EMAIL / EG_PASSWORD / EG_OTPKEY env vars (single account).
+ */
+function loadAccounts() {
+  const configPath = path.join(dataDir, 'config.json');
+  if (existsSync(configPath)) {
+    try {
+      const raw = readFileSync(configPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
+        return parsed.accounts.map((a) => ({
+          email: a.email || '',
+          password: a.password || '',
+          otpkey: a.otpkey || '',
+        }));
+      }
+    } catch (err) {
+      console.error(`Warning: failed to parse ${configPath}: ${err.message}`);
+    }
+  }
+
+  // Fallback: single account from env
+  const email = process.env.EG_EMAIL || '';
+  if (email) {
+    return [
+      {
+        email,
+        password: process.env.EG_PASSWORD || '',
+        otpkey: process.env.EG_OTPKEY || '',
+      },
+    ];
+  }
+
+  // No accounts configured — interactive login mode
+  return [];
+}
+
+const accounts = loadAccounts();
+
 export const cfg = {
-  // Epic credentials (optional — interactive login also supported)
-  eg_email: process.env.EG_EMAIL || '',
-  eg_password: process.env.EG_PASSWORD || '',
-  eg_otpkey: process.env.EG_OTPKEY || '',
+  // Accounts (multi-account support)
+  accounts,
+
+  // Legacy single-account shortcuts (first account or empty)
+  eg_email: accounts[0]?.email || '',
+  eg_password: accounts[0]?.password || '',
+  eg_otpkey: accounts[0]?.otpkey || '',
 
   // Browser
   headless: process.env.HEADLESS !== '0',
@@ -29,6 +82,9 @@ export const cfg = {
   height: parseInt(process.env.HEIGHT || '720', 10),
   timeout: parseInt(process.env.TIMEOUT || '30000', 10),
   loginTimeout: parseInt(process.env.LOGIN_TIMEOUT || '180000', 10), // 3 minutes for manual login
+
+  // Parental control PIN (if enabled on Epic account)
+  eg_parentalpin: process.env.EG_PARENTALPIN || '',
 
   // Directories
   dir: {
@@ -47,4 +103,14 @@ export const cfg = {
   // Locale
   locale: process.env.LOCALE || 'en-US',
   country: process.env.COUNTRY || 'US',
+
+  /**
+   * Get browser profile directory for a specific account.
+   * For multi-account, each account gets its own profile subdirectory.
+   */
+  getBrowserDir(accountIndex = 0) {
+    if (accounts.length <= 1) return this.dir.browser;
+    const suffix = accounts[accountIndex]?.email?.replace(/[^a-zA-Z0-9]/g, '_') || `account_${accountIndex}`;
+    return ensureDir(path.join(dataDir, 'browser-profiles', suffix));
+  },
 };

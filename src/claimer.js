@@ -2,7 +2,8 @@
  * Browser automation for claiming free games on Epic Games Store.
  * Uses Playwright with persistent context for session persistence.
  */
-import { chromium } from 'playwright';
+import { firefox } from 'playwright';
+import { existsSync, appendFileSync } from 'fs';
 import path from 'path';
 import { cfg } from './config.js';
 import { datetime, filenamify, sleep } from './utils.js';
@@ -26,45 +27,27 @@ const RETRY_DELAY_MS = 5000;
 export async function launchBrowser({ headless, browserDir } = {}) {
   const useHeadless = headless ?? cfg.headless;
   const profileDir = browserDir || cfg.dir.browser;
-  console.log(`Launching browser (headless: ${useHeadless}, profile: ${profileDir})...`);
+  console.log(`Launching Firefox (headless: ${useHeadless}, profile: ${profileDir})...`);
 
-  const context = await chromium.launchPersistentContext(profileDir, {
+  // Disable WebGL in Firefox to reduce hCaptcha fingerprinting
+  // (Firefox removes duplicate prefs and sorts them, safe to append every time)
+  const prefsFile = path.join(profileDir, 'prefs.js');
+  if (existsSync(prefsFile)) {
+    appendFileSync(prefsFile, '\nuser_pref("webgl.disabled", true);\n');
+  }
+
+  const context = await firefox.launchPersistentContext(profileDir, {
     headless: useHeadless,
     viewport: { width: cfg.width, height: cfg.height },
     locale: 'en-US',
-    timezoneId: 'America/New_York',
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-    ],
+    // Use a realistic Windows Firefox UA to avoid "device not supported" issues
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0',
   });
 
-  // Apply stealth measures to avoid bot detection
+  // Stealth: override navigator.webdriver
   await context.addInitScript(() => {
-    // Remove webdriver flag
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-    // Fake plugins (headless browsers have none)
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => [1, 2, 3, 4, 5],
-    });
-
-    // Fake languages
-    Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en'],
-    });
-
-    // Override permissions query for notifications
-    const originalQuery = window.navigator.permissions?.query;
-    if (originalQuery) {
-      window.navigator.permissions.query = (params) =>
-        params.name === 'notifications'
-          ? Promise.resolve({ state: Notification.permission })
-          : originalQuery(params);
-    }
-
-    // Prevent detection via chrome property
-    window.chrome = { runtime: {} };
   });
 
   const page = context.pages()[0] || (await context.newPage());

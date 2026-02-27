@@ -28,10 +28,10 @@ echo ""
 echo "📦 Installing dependencies..."
 npm install
 
-# Install Playwright browsers
+# Install Playwright Firefox (less captcha-prone than Chromium)
 echo ""
-echo "🌐 Installing Playwright browser..."
-npx playwright install chromium
+echo "🌐 Installing Playwright Firefox..."
+npx playwright install firefox
 
 # Create .env from template if it doesn't exist
 if [ ! -f .env ]; then

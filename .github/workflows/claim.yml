@@ -22,8 +22,8 @@ jobs:
 
       - run: npm ci
 
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium --with-deps
+      - name: Install Playwright Firefox
+        run: npx playwright install firefox --with-deps
 
       - name: Restore browser profile
         uses: actions/cache@v4

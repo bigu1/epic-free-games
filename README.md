@@ -58,6 +58,12 @@ DRYRUN=1 node src/index.js --claim
 
 # 查看状态 / Check status
 node src/index.js --status
+
+# 可见模式领取 / Claim with visible browser
+node src/index.js --claim-visible
+
+# 单游戏调试 / Claim one specific game URL
+node src/index.js --single https://store.epicgames.com/en-US/p/cozy-grove
 ```
 
 ---
@@ -124,9 +130,13 @@ On first run, a browser window opens for manual login. Cookies are saved to `dat
 
 ### 验证码 / Captcha
 
-检测到 hCaptcha 时：截图保存 + 通知提醒。减少触发方法：家庭 IP、降低频率。
+现在脚本会把验证码当成**明确状态**处理，而不是继续傻重试：
+- 检测到验证码会记录为 `captcha_blocked`
+- 自动停止盲重试，避免把同一 IP / profile 越打越脏
+- 保存截图、原因、details，并发送结构化通知
+- 结果会写入 `claimed.json`，便于后续排查
 
-When hCaptcha is detected: screenshot saved + notification sent. To reduce triggers: use residential IP, lower frequency.
+To reduce triggers: use a clean residential IP, avoid aggressive retries, and keep a stable browser profile/session.
 
 ---
 
@@ -182,9 +192,11 @@ epic-free-games/
 
 **"Not logged in" 错误** → 运行 `node src/index.js --login` / Run `--login`
 
-**每次都出验证码** → 用家庭 IP，清除 `data/browser-profile/` 重新登录 / Use residential IP, clear profile and re-login
+**每次都出验证码** → 优先换成干净家庭 IP；脚本现在会把这类情况标成 `captcha_blocked`，并停止盲重试。必要时清除 `data/browser-profile/` 后重新登录。
 
-**浏览器崩溃** → 确保有足够内存（~500MB）/ Ensure enough memory (~500MB)
+**日志里看到 `payment_iframe_timeout` / `place_order_not_found`** → 这是页面流程异常，不一定是验证码；先看 `claimed.json` 里的 `reason/details/screenshotPath` 再判断。
+
+**浏览器崩溃 / 页面关闭** → 确保有足够内存（~500MB）；现在脚本会单独记录 `page_closed`，不会再让截图失败覆盖主因。
 
 ---
 

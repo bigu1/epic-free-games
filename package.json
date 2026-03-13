@@ -11,6 +11,8 @@
     "start": "node src/index.js",
     "list": "node src/index.js --list",
     "claim": "node src/index.js --claim",
+    "claim:visible": "node src/index.js --claim-visible",
+    "status": "node src/index.js --status",
     "login": "node src/index.js --login",
     "test": "node --test src/__tests__/"
   },

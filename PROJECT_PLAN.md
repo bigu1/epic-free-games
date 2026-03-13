@@ -153,6 +153,21 @@ epic-free-games/
 - [ ] AI 验证码 solver 集成（Gemini/GPT-4V）— 可选
 - [ ] DLC 自动领取 — 可选
 
+### Phase 6: 验证码整改 / Claim Reliability (2026-03-13)
+
+**目标**: 先把领取链路的根因识别、重试策略和记录做对，再考虑人工接管与更高级的反风控。
+
+- [x] 细粒度状态码（`captcha_blocked` / `payment_iframe_timeout` / `place_order_not_found` / `page_closed` / `payment_error` 等）
+- [x] `safeScreenshot()`：截图失败不再覆盖主错误
+- [x] `waitForCheckoutSurface()` / `waitForPlaceOrderReady()` / `waitForClaimOutcome()`
+- [x] 按状态重试，停止验证码场景下的盲重试
+- [x] `claimed.json` 记录 `reason/details/screenshotPath/manualRequired`
+- [x] 通知模板升级，明确输出失败根因
+- [ ] 人工接管模式（captcha → visible browser 接管）
+- [x] 单游戏调试命令（`--single <url>`）
+- [x] 可见模式领取（`--claim-visible`）
+- [ ] 双引擎验证（Firefox / Chromium）
+
 ## 风险与缓解
 
 | 风险 | 影响 | 缓解措施 |

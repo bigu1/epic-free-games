@@ -21,6 +21,16 @@ import { existsSync } from 'fs';
 const args = process.argv.slice(2);
 const command = args.find((a) => a.startsWith('--'))?.replace('--', '') || 'claim';
 
+function getArgValue(flag) {
+  const eq = args.find((a) => a.startsWith(`${flag}=`));
+  if (eq) return eq.slice(flag.length + 1);
+  const index = args.indexOf(flag);
+  if (index >= 0 && args[index + 1] && !args[index + 1].startsWith('--')) {
+    return args[index + 1];
+  }
+  return '';
+}
+
 async function main() {
   console.log(`[${datetime()}] epic-free-games v0.1.0`);
 
@@ -33,6 +43,12 @@ async function main() {
       break;
     case 'claim':
       await cmdClaim();
+      break;
+    case 'claim-visible':
+      await cmdClaim({ headless: false });
+      break;
+    case 'single':
+      await cmdClaim({ singleUrl: getArgValue('--single') });
       break;
     case 'status':
       await cmdStatus();
@@ -64,7 +80,6 @@ async function cmdList() {
   console.log('🔜 Upcoming Free Games:');
   console.log(formatGameList(upcoming) || '  (none)');
 
-  // Output JSON for programmatic use
   if (args.includes('--json')) {
     console.log('\n--- JSON ---');
     console.log(JSON.stringify({ current, upcoming }, null, 2));
@@ -88,40 +103,48 @@ async function cmdLogin() {
 /**
  * --claim: Check for free games and claim them (supports multi-account).
  */
-async function cmdClaim() {
-  // First, check what's available via public API
-  console.log('Checking available free games...');
-  try {
-    const { current } = await fetchFreeGames({ locale: cfg.locale, country: cfg.country });
-    console.log(
-      `Found ${current.length} free game(s): ${current.map((g) => g.title).join(', ') || '(none)'}`
-    );
-    if (!current.length) {
-      await notify('No free games available on Epic Games Store this week.', { level: 'info' });
-      return;
+async function cmdClaim(options = {}) {
+  const singleUrl = options.singleUrl || '';
+  const requestedHeadless = options.headless;
+
+  if (singleUrl) {
+    console.log(`Single-game mode: ${singleUrl}`);
+  } else {
+    console.log('Checking available free games...');
+    try {
+      const { current } = await fetchFreeGames({ locale: cfg.locale, country: cfg.country });
+      console.log(
+        `Found ${current.length} free game(s): ${current.map((g) => g.title).join(', ') || '(none)'}`
+      );
+      if (!current.length) {
+        await notify('No free games available on Epic Games Store this week.', { level: 'info' });
+        return;
+      }
+    } catch (err) {
+      console.error(`Failed to fetch free games list: ${err.message}`);
+      console.log('Will try to detect free games via browser instead.');
     }
-  } catch (err) {
-    console.error(`Failed to fetch free games list: ${err.message}`);
-    console.log('Will try to detect free games via browser instead.');
   }
 
-  // Multi-account: iterate over configured accounts (or default single session)
   const accountCount = Math.max(cfg.accounts.length, 1);
   const allResults = [];
 
   for (let i = 0; i < accountCount; i++) {
     const account = cfg.accounts[i];
     const label = account?.email || 'default';
-    if (accountCount > 1) console.log(`\n${'='.repeat(50)}\nAccount ${i + 1}/${accountCount}: ${label}\n${'='.repeat(50)}`);
+    if (accountCount > 1) {
+      console.log(
+        `\n${'='.repeat(50)}\nAccount ${i + 1}/${accountCount}: ${label}\n${'='.repeat(50)}`
+      );
+    }
 
     const browserDir = cfg.getBrowserDir(i);
-    const { context, page } = await launchBrowser({ browserDir });
+    const { context, page } = await launchBrowser({ browserDir, headless: requestedHeadless });
     try {
       const loggedIn = await isLoggedIn(page);
       if (!loggedIn) {
         console.log('Not logged in. Attempting login...');
         if (account?.email && account?.password) {
-          // Temporarily set credentials for this account
           cfg.eg_email = account.email;
           cfg.eg_password = account.password;
           cfg.eg_otpkey = account.otpkey || '';
@@ -139,17 +162,16 @@ async function cmdClaim() {
         }
       }
 
-      const results = await claimFreeGames(page);
+      const results = await claimFreeGames(page, {
+        gameUrls: singleUrl ? [singleUrl] : undefined,
+      });
       allResults.push({ account: label, results });
-
-      // Send per-account notification
       await notifyClaimResults(results);
     } finally {
       await context.close();
     }
   }
 
-  // Save all results to claimed.json
   const db = jsonDb(path.join(cfg.dir.data, 'claimed.json'), { history: [] });
   db.data.history.push({
     date: datetime(),
@@ -164,11 +186,9 @@ async function cmdClaim() {
 async function cmdStatus() {
   console.log('📊 Epic Free Games — Status\n');
 
-  // Check browser profile existence
   const profileExists = existsSync(cfg.dir.browser);
   console.log(`Browser profile: ${profileExists ? '✅ exists' : '❌ not found'} (${cfg.dir.browser})`);
 
-  // Check login
   if (profileExists) {
     const { context, page } = await launchBrowser();
     try {
@@ -186,7 +206,6 @@ async function cmdStatus() {
     console.log('Login status:   ❌ no session (run --login first)');
   }
 
-  // Show claim history
   const claimedPath = path.join(cfg.dir.data, 'claimed.json');
   if (existsSync(claimedPath)) {
     const db = jsonDb(claimedPath, { history: [] });
@@ -195,16 +214,29 @@ async function cmdStatus() {
     if (total > 0) {
       const last = db.data.history[total - 1];
       console.log(`Last run:       ${last.date}`);
-      for (const r of last.results || []) {
-        const icon = r.status === 'claimed' ? '🎮' : r.status === 'already_owned' ? '📦' : '❌';
-        console.log(`  ${icon} ${r.title} — ${r.status}`);
+      for (const account of last.accounts || []) {
+        console.log(`  Account: ${account.account}`);
+        for (const result of account.results || []) {
+          const icon =
+            result.status === 'claimed'
+              ? '🎮'
+              : result.status === 'already_owned'
+                ? '📦'
+                : result.status === 'captcha_blocked'
+                  ? '🧩'
+                  : result.status === 'dryrun_skipped'
+                    ? '🏃'
+                    : '❌';
+          console.log(
+            `    ${icon} ${result.title} — ${result.status}${result.reason ? ` (${result.reason})` : ''}`
+          );
+        }
       }
     }
   } else {
     console.log('\nClaim history:  no records yet');
   }
 
-  // Show current free games
   console.log('');
   try {
     const { current } = await fetchFreeGames({ locale: cfg.locale, country: cfg.country });
@@ -222,14 +254,16 @@ Usage:
   node src/index.js [command]
 
 Commands:
-  --list     List current & upcoming free games (no login required)
-  --login    Interactive login (opens visible browser window)
-  --claim    Claim all available free games (default)
-  --status   Check login status and claim history
-  --help     Show this help
+  --list           List current & upcoming free games (no login required)
+  --login          Interactive login (opens visible browser window)
+  --claim          Claim all available free games (default)
+  --claim-visible  Claim in visible browser mode
+  --single <url>   Claim one specific Epic game/product URL
+  --status         Check login status and claim history
+  --help           Show this help
 
 Options:
-  --json     Output JSON (with --list)
+  --json           Output JSON (with --list)
 
 Environment Variables:
   EG_EMAIL       Epic Games account email
@@ -241,10 +275,12 @@ Environment Variables:
   DATA_DIR       Custom data directory (default: ./data)
 
 Examples:
-  node src/index.js --list           # Check what's free this week
-  node src/index.js --login          # Login to Epic Games
-  node src/index.js --claim          # Claim all free games
-  DRYRUN=1 node src/index.js        # Test run without claiming
+  node src/index.js --list                                 # Check what's free this week
+  node src/index.js --login                                # Login to Epic Games
+  node src/index.js --claim                                # Claim all free games
+  node src/index.js --claim-visible                        # Claim with visible browser
+  node src/index.js --single https://store.epicgames.com/en-US/p/cozy-grove
+  DRYRUN=1 node src/index.js --claim                       # Test run without claiming
   `);
 }
 

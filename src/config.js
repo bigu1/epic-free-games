@@ -81,6 +81,7 @@ export const cfg = {
   width: parseInt(process.env.WIDTH || '1280', 10),
   height: parseInt(process.env.HEIGHT || '720', 10),
   timeout: parseInt(process.env.TIMEOUT || '30000', 10),
+  checkoutTimeout: parseInt(process.env.CHECKOUT_TIMEOUT || '60000', 10),
   loginTimeout: parseInt(process.env.LOGIN_TIMEOUT || '180000', 10), // 3 minutes for manual login
 
   // Parental control PIN (if enabled on Epic account)

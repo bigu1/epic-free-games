@@ -16,6 +16,12 @@ const URL_LOGIN =
 
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 5000;
+const CAPTCHA_TEXT_PATTERN =
+  /verify you are human|drag the puzzle|complete the puzzle|captcha|hcaptcha|security check|enable javascript and cookies|verification successful|challenge-error|one more step/i;
+
+export function looksLikeCaptchaText(text = '') {
+  return CAPTCHA_TEXT_PATTERN.test(text);
+}
 const RETRIABLE_STATUSES = new Set([
   'unknown',
   'payment_iframe_timeout',
@@ -266,7 +272,7 @@ async function claimSingleGame(page, url, attempt = 1) {
     await purchaseBtn.click({ delay: 50 });
     await autoHandlePagePrompts(page);
 
-    const checkoutSurface = await waitForCheckoutSurface(page, purchaseBtn, 15000);
+    const checkoutSurface = await waitForCheckoutSurface(page, purchaseBtn, cfg.checkoutTimeout);
     applyOutcome(result, checkoutSurface);
 
     if (checkoutSurface.status === 'claimed') {
@@ -291,7 +297,7 @@ async function claimSingleGame(page, url, attempt = 1) {
     }
 
     const iframe = page.frameLocator('#webPurchaseContainer iframe');
-    const prePlaceOutcome = await waitForPlaceOrderReady(page, iframe, 15000);
+    const prePlaceOutcome = await waitForPlaceOrderReady(page, iframe, cfg.checkoutTimeout);
     applyOutcome(result, prePlaceOutcome);
 
     if (prePlaceOutcome.status !== 'place_order_ready') {
@@ -473,6 +479,18 @@ async function waitForCheckoutSurface(page, purchaseBtn, timeoutMs) {
 
     try {
       if ((await page.locator('#webPurchaseContainer iframe').count()) > 0) {
+        const iframeCaptchaEvidence = await detectCaptchaState(
+          page,
+          page.frameLocator('#webPurchaseContainer iframe')
+        );
+        if (iframeCaptchaEvidence) {
+          return {
+            status: 'captcha_blocked',
+            reason: 'captcha_detected_in_checkout_iframe',
+            manualRequired: true,
+            details: iframeCaptchaEvidence,
+          };
+        }
         return { status: 'checkout_iframe_ready', reason: 'checkout_iframe_visible' };
       }
     } catch {
@@ -623,33 +641,34 @@ function classifyPaymentError(text, fallbackReason) {
 }
 
 async function detectCaptchaState(page, iframe = null) {
-  const locators = [
-    page.locator('iframe[src*="hcaptcha"]'),
-    page.locator('iframe[title*="hCaptcha"]'),
-    page.locator('iframe[title*="captcha"]'),
-    page.locator('.h_captcha_challenge'),
-    page.locator('#h_captcha_challenge_checkout_free_prod'),
-    page.locator('[class*="captcha"]'),
-    page.locator('text=/verify you are human|drag the puzzle|complete the puzzle|captcha|puzzle/i'),
-  ];
-
-  if (iframe) {
+  const locators = [];
+  const addCaptchaLocators = (target) => {
     locators.push(
-      iframe.locator('iframe[src*="hcaptcha"]'),
-      iframe.locator('iframe[title*="hCaptcha"]'),
-      iframe.locator('iframe[title*="captcha"]'),
-      iframe.locator('.h_captcha_challenge'),
-      iframe.locator('#h_captcha_challenge_checkout_free_prod'),
-      iframe.locator('[class*="captcha"]'),
-      iframe.locator('text=/verify you are human|drag the puzzle|complete the puzzle|captcha|puzzle/i')
+      target.locator('iframe[src*="hcaptcha"]'),
+      target.locator('iframe[src*="challenges.cloudflare.com"]'),
+      target.locator('iframe[title*="hCaptcha"]'),
+      target.locator('iframe[title*="captcha"]'),
+      target.locator('.h_captcha_challenge'),
+      target.locator('#h_captcha_challenge_checkout_free_prod'),
+      target.locator('#challenge-error-text'),
+      target.locator('[class*="captcha"]'),
+      target.locator(`text=${CAPTCHA_TEXT_PATTERN}`)
     );
+  };
+
+  addCaptchaLocators(page);
+  if (iframe) addCaptchaLocators(iframe);
+
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    addCaptchaLocators(frame);
   }
 
   for (const locator of locators) {
     try {
       if ((await locator.count()) > 0 && (await locator.first().isVisible())) {
-        const text = await locator.first().innerText().catch(() => 'captcha visible');
-        return text || 'captcha visible';
+        const text = await locator.first().innerText().catch(() => 'captcha/security challenge visible');
+        return text || 'captcha/security challenge visible';
       }
     } catch {
       // Ignore locator failures.

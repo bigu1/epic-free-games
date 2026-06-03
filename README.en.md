@@ -82,6 +82,7 @@ cp .env.example .env
 | `EG_PASSWORD` | No | Epic Games account password |
 | `EG_OTPKEY` | No | TOTP secret for 2FA |
 | `HEADLESS` | No | `0` shows the browser, `1` runs headless |
+| `CHECKOUT_TIMEOUT` | No | Checkout/Place Order wait timeout in ms (default: `60000`) |
 | `WEBHOOK_URL` | No | Notification webhook URL |
 | `DRYRUN` | No | `1` simulates the claim without placing the order |
 | `DATA_DIR` | No | Custom data directory (default: `./data`) |
@@ -198,7 +199,10 @@ Run `node src/index.js --login`
 Try switching to a clean residential IP first. The script now marks this state as `captcha_blocked` and stops blind retries. If needed, delete `data/browser-profile/` and log in again.
 
 **Seeing `payment_iframe_timeout` / `place_order_not_found` in logs**  
-These usually indicate a page flow problem, not necessarily Captcha. Check `claimed.json` for `reason`, `details`, and `screenshotPath`.
+These usually indicate a page flow problem, not necessarily Captcha. Check `claimed.json` for `reason`, `details`, and `screenshotPath`. If checkout is just slow, raise `CHECKOUT_TIMEOUT`.
+
+**Seeing `captcha_blocked` with a security check / Cloudflare message**  
+Epic blocked the checkout iframe before the Place Order button. Run `HEADLESS=0 node src/index.js --claim-visible` and complete the browser challenge manually, or retry from a cleaner network/session.
 
 **Browser crashes / page closes unexpectedly**  
 Make sure the machine has enough memory (roughly 500MB or more). The script now records `page_closed` separately so screenshot failures no longer hide the root cause.

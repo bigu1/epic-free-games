@@ -82,6 +82,7 @@ cp .env.example .env
 | `EG_PASSWORD` | 否 | Epic Games 密码 |
 | `EG_OTPKEY` | 否 | 2FA TOTP 密钥 |
 | `HEADLESS` | 否 | `0` 显示浏览器，`1` 后台运行 |
+| `CHECKOUT_TIMEOUT` | 否 | Checkout / Place Order 等待超时毫秒数（默认 `60000`） |
 | `WEBHOOK_URL` | 否 | 通知 Webhook 地址 |
 | `DRYRUN` | 否 | `1` 仅模拟，不实际领取 |
 | `DATA_DIR` | 否 | 自定义数据目录（默认：`./data`） |
@@ -198,7 +199,10 @@ epic-free-games/
 优先换成干净的家庭 IP；脚本现在会把这类情况标记为 `captcha_blocked`，并停止盲重试。必要时可删除 `data/browser-profile/` 后重新登录。
 
 **日志里看到 `payment_iframe_timeout` / `place_order_not_found`**  
-这通常表示页面流程异常，不一定是验证码。建议先查看 `claimed.json` 里的 `reason` / `details` / `screenshotPath`。
+这通常表示页面流程异常，不一定是验证码。建议先查看 `claimed.json` 里的 `reason` / `details` / `screenshotPath`。如果只是 checkout 加载慢，可调大 `CHECKOUT_TIMEOUT`。
+
+**日志里看到带 security check / Cloudflare 信息的 `captcha_blocked`**  
+说明 Epic 在 Place Order 出现前拦截了 checkout iframe。请运行 `HEADLESS=0 node src/index.js --claim-visible`，在可见浏览器里手动完成验证，或换更干净的网络 / session 后重试。
 
 **浏览器崩溃 / 页面关闭**  
 确保机器有足够内存（约 500MB 以上）；现在脚本会单独记录 `page_closed`，不会再让截图失败覆盖主因。

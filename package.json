@@ -14,7 +14,7 @@
     "claim:visible": "node src/index.js --claim-visible",
     "status": "node src/index.js --status",
     "login": "node src/index.js --login",
-    "test": "node --test src/__tests__/"
+    "test": "node --test \"src/__tests__/*.test.js\""
   },
   "keywords": [
     "epic-games",

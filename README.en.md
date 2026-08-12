@@ -21,6 +21,8 @@ Automatically claim weekly free games from the [Epic Games Store](https://store.
 
 ## Quick Start
 
+Requires Node.js 20.19 or newer.
+
 ```bash
 git clone https://github.com/bigu1/epic-free-games.git
 cd epic-free-games
@@ -78,16 +80,17 @@ cp .env.example .env
 
 | Variable | Required | Description |
 |---|---|---|
-| `EG_EMAIL` | No | Epic Games account email for auto-login |
-| `EG_PASSWORD` | No | Epic Games account password |
+| `EG_EMAIL` | Required in GitHub Actions | Epic Games account email for auto-login |
+| `EG_PASSWORD` | Required in GitHub Actions | Epic Games account password |
 | `EG_OTPKEY` | No | TOTP secret for 2FA |
+| `EG_PARENTALPIN` | No | Parental control PIN |
 | `HEADLESS` | No | `0` shows the browser, `1` runs headless |
 | `CHECKOUT_TIMEOUT` | No | Checkout/Place Order wait timeout in ms (default: `60000`) |
 | `WEBHOOK_URL` | No | Notification webhook URL |
 | `DRYRUN` | No | `1` simulates the claim without placing the order |
 | `DATA_DIR` | No | Custom data directory (default: `./data`) |
 
-> Credentials are optional. You can also log in interactively with `--login`.
+> Local runs can use interactive `--login`. GitHub-hosted runners do not persist sessions, so GitHub Actions requires `EG_EMAIL` and `EG_PASSWORD`.
 
 ---
 
@@ -98,15 +101,18 @@ cp .env.example .env
 Epic usually refreshes free games every Thursday:
 
 ```bash
-# Every Thursday at 00:30
-30 0 * * 4 cd /path/to/epic-free-games && node src/index.js --claim >> /tmp/epic-free-games.log 2>&1
+# Cron uses the server's local timezone; this example assumes UTC
+# Every Thursday at 17:00 UTC (Epic usually refreshes at 16:00 UTC)
+0 17 * * 4 cd /path/to/epic-free-games && node src/index.js --claim >> /tmp/epic-free-games.log 2>&1
 ```
 
 ### GitHub Actions
 
 1. Fork this repository
-2. Open Settings → Secrets and add: `EG_EMAIL`, `EG_PASSWORD`, `EG_OTPKEY`, `WEBHOOK_URL`
+2. Open Settings → Secrets and variables → Actions. Add at least `EG_EMAIL` and `EG_PASSWORD`; optionally add `EG_OTPKEY`, `EG_PARENTALPIN`, and `WEBHOOK_URL`
 3. Enable the Actions workflow
+
+Claim failures make the workflow fail; Captcha still requires manual action. For security, public-repository Actions do not cache the login profile or upload screenshots that may contain account details.
 
 ### OpenClaw Skill
 
@@ -203,6 +209,10 @@ These usually indicate a page flow problem, not necessarily Captcha. Check `clai
 
 **Seeing `captcha_blocked` with a security check / Cloudflare message**  
 Epic blocked the checkout iframe before the Place Order button. Run `HEADLESS=0 node src/index.js --claim-visible` and complete the browser challenge manually, or retry from a cleaner network/session.
+
+**The GitHub Action is green, but did it actually claim anything?**
+
+The current version only exits successfully for `claimed`, `already_owned`, or `dryrun_skipped`. Missing login, Captcha, and claim errors make the workflow fail.
 
 **Browser crashes / page closes unexpectedly**  
 Make sure the machine has enough memory (roughly 500MB or more). The script now records `page_closed` separately so screenshot failures no longer hide the root cause.

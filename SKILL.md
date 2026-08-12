@@ -21,7 +21,7 @@ bash scripts/setup.sh
 
 This will:
 1. Install Node.js dependencies
-2. Install Playwright Chromium browser
+2. Install Playwright Firefox browser
 3. Guide you through first-time Epic Games login
 
 ## Usage
@@ -39,11 +39,10 @@ node src/index.js --claim
 
 ## Cron (OpenClaw)
 
-Recommended schedule: **Every Thursday at 00:30** (Epic updates free games on Thursdays).
+Recommended schedule: **Every Thursday at 17:00 UTC** (after Epic's usual 16:00 UTC refresh). Cron uses the host's local timezone, so convert this schedule when the host is not set to UTC.
 
 ```
-cron: 0 0 * * 4
-stagger: 30m
+cron: 0 17 * * 4
 ```
 
 Task prompt for cron:
@@ -58,7 +57,7 @@ Copy `.env.example` to `.env` and edit as needed. All settings are optional — 
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20.19
 - Playwright (installed automatically)
 - Epic Games account
 

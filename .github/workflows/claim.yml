@@ -7,50 +7,35 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   claim:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'npm'
 
       - run: npm ci
 
-      - name: Install Playwright Firefox
-        run: npx playwright install firefox --with-deps
+      - run: npm test
 
-      - name: Restore browser profile
-        uses: actions/cache@v4
-        with:
-          path: data/browser-profile
-          key: epic-browser-profile-${{ github.repository_owner }}
+      - name: Install Playwright Firefox
+        run: PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=120000 npx playwright install firefox --with-deps
 
       - name: Claim free games
         env:
           EG_EMAIL: ${{ secrets.EG_EMAIL }}
           EG_PASSWORD: ${{ secrets.EG_PASSWORD }}
           EG_OTPKEY: ${{ secrets.EG_OTPKEY }}
+          EG_PARENTALPIN: ${{ secrets.EG_PARENTALPIN }}
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           HEADLESS: '1'
         run: node src/index.js --claim
-
-      - name: Save browser profile
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/browser-profile
-          key: epic-browser-profile-${{ github.repository_owner }}-${{ github.run_id }}
-
-      - name: Upload screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: data/screenshots/
-          retention-days: 7

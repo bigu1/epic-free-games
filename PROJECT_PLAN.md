@@ -28,7 +28,7 @@
 | 决策 | 选择 | 理由 |
 |------|------|------|
 | 语言 | Node.js | Playwright 原生支持，社区生态好 |
-| 浏览器引擎 | Playwright Chromium | 兼容性最好，支持 persistent context |
+| 浏览器引擎 | Playwright Firefox | 降低 hCaptcha 指纹命中，支持 persistent context |
 | 认证 | 持久化浏览器上下文 | 登录一次，cookie 自动保存 |
 | 验证码 | 通知用户手动解决 / AI solver (可选) | hCaptcha 有反自动化检测 |
 | 发布形态 | OpenClaw Skill | 支持 cron、通知、分享 |
@@ -140,7 +140,7 @@ epic-free-games/
 - [x] scripts/setup.sh — 一键配置
 - [x] scripts/claim.sh — Cron 调用入口
 - [x] scripts/login.sh — 手动登录
-- [x] cron 配置建议（每周四 00:30 执行）
+- [x] cron 配置建议（每周四 17:00 UTC 执行）
 - [x] 文档完善（README + README_CN）
 
 ### Phase 5: 高级功能

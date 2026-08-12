@@ -3,7 +3,6 @@
  * Uses Playwright with persistent context for session persistence.
  */
 import { firefox } from 'playwright';
-import { existsSync, appendFileSync } from 'fs';
 import path from 'path';
 import { cfg } from './config.js';
 import { datetime, filenamify, sleep } from './utils.js';
@@ -17,13 +16,32 @@ const URL_LOGIN =
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 5000;
 const CAPTCHA_TEXT_PATTERN =
-  /verify you are human|drag the puzzle|complete the puzzle|captcha|hcaptcha|security check|enable javascript and cookies|verification successful|challenge-error|one more step/i;
+  /verify you are human|drag the puzzle|complete the puzzle|captcha|hcaptcha|security check|enable javascript and cookies|challenge-error|one more step/i;
+const CHECKOUT_SUBMIT_NAME = /^(Place Order|Add to library)$/i;
 
 export function looksLikeCaptchaText(text = '') {
   return CAPTCHA_TEXT_PATTERN.test(text);
 }
+
+export function isCheckoutSubmitText(text = '') {
+  return CHECKOUT_SUBMIT_NAME.test(text.trim());
+}
+
+export function isFreePurchaseCta(text = '') {
+  return text.trim().toLowerCase() === 'get';
+}
+
+export async function clickFreePurchaseCta(locator) {
+  const text = await getLocatorText(locator);
+  if (!isFreePurchaseCta(text)) return { clicked: false, text };
+
+  await locator.filter({ hasText: /^\s*Get\s*$/i }).click({ delay: 50 });
+  return { clicked: true, text };
+}
+
 const RETRIABLE_STATUSES = new Set([
   'unknown',
+  'purchase_cta_not_ready',
   'payment_iframe_timeout',
   'place_order_not_found',
   'payment_error',
@@ -38,13 +56,7 @@ const RETRIABLE_STATUSES = new Set([
 export async function launchBrowser({ headless, browserDir } = {}) {
   const useHeadless = headless ?? cfg.headless;
   const profileDir = browserDir || cfg.dir.browser;
-  console.log(`Launching Firefox (headless: ${useHeadless}, profile: ${profileDir})...`);
-
-  // Disable WebGL in Firefox to reduce hCaptcha fingerprinting.
-  const prefsFile = path.join(profileDir, 'prefs.js');
-  if (existsSync(prefsFile)) {
-    appendFileSync(prefsFile, '\nuser_pref("webgl.disabled", true);\n');
-  }
+  console.log(`Launching Firefox (headless: ${useHeadless})...`);
 
   const context = await firefox.launchPersistentContext(profileDir, {
     headless: useHeadless,
@@ -52,6 +64,7 @@ export async function launchBrowser({ headless, browserDir } = {}) {
     locale: 'en-US',
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0',
+    firefoxUserPrefs: { 'webgl.disabled': true },
   });
 
   await context.addInitScript(() => {
@@ -104,24 +117,33 @@ export async function login(page) {
 
   if (cfg.eg_email && cfg.eg_password) {
     console.log('Auto-filling credentials...');
+    let mfaRequired = false;
     try {
       await page.fill('#email', cfg.eg_email, { timeout: 10000 });
       await page.fill('#password', cfg.eg_password, { timeout: 5000 });
       await page.click('button[type="submit"]');
 
       if (cfg.eg_otpkey) {
-        const { authenticator } = await import('otplib');
         try {
           await page.waitForURL('**/id/login/mfa**', { timeout: 10000 });
-          const otp = authenticator.generate(cfg.eg_otpkey);
-          console.log('Entering 2FA code...');
-          await page.locator('input[name="code-input-0"]').pressSequentially(otp.toString());
-          await page.click('button[type="submit"]');
+          mfaRequired = true;
         } catch {
-          // MFA page didn't appear — that's fine.
+          // MFA page did not appear.
+        }
+
+        if (mfaRequired) {
+          const otp = await generateOtp(cfg.eg_otpkey);
+          console.log('Entering 2FA code...');
+          await page.locator('input[name="code-input-0"]').pressSequentially(otp);
+          await page.click('button[type="submit"]');
         }
       }
     } catch (err) {
+      if (mfaRequired) {
+        throw new Error('Automatic MFA failed. Check EG_OTPKEY and the MFA form.', {
+          cause: err,
+        });
+      }
       console.error(`Auto-fill login failed: ${err.message}`);
       console.log('Please login manually in the browser window.');
     }
@@ -138,11 +160,16 @@ export async function login(page) {
     await page.waitForURL('**/free-games**', { timeout: cfg.loginTimeout });
     const nav = page.locator('egs-navigation');
     const user = await nav.getAttribute('displayname', { timeout: 10000 }).catch(() => 'unknown');
-    console.log(`✅ Logged in as: ${user}`);
+    console.log('✅ Logged in.');
     return user;
   } catch {
     throw new Error('Login timed out. Please try again with: node src/index.js --login');
   }
+}
+
+export async function generateOtp(secret) {
+  const { generate } = await import('otplib');
+  return generate({ secret });
 }
 
 /**
@@ -243,7 +270,12 @@ async function claimSingleGame(page, url, attempt = 1) {
     const purchaseBtn = page.locator('button[data-testid="purchase-cta-button"]').first();
     await purchaseBtn.waitFor({ timeout: 15000 });
 
-    let btnText = await getLocatorText(purchaseBtn);
+    let btnText = await waitForPurchaseCtaText(purchaseBtn, 15000);
+    if (!btnText) {
+      result.status = 'purchase_cta_not_ready';
+      result.reason = 'purchase_cta_text_not_ready';
+      return result;
+    }
     if (btnText.includes('in library')) {
       result.status = 'already_owned';
       result.reason = 'already_in_library_before_claim';
@@ -260,6 +292,20 @@ async function claimSingleGame(page, url, attempt = 1) {
 
     await handleMatureContent(page);
 
+    btnText = await waitForPurchaseCtaText(purchaseBtn, 5000);
+    if (!btnText) {
+      result.status = 'purchase_cta_not_ready';
+      result.reason = 'purchase_cta_text_not_ready_after_prompts';
+      return result;
+    }
+    if (!isFreePurchaseCta(btnText)) {
+      result.status = 'not_free';
+      result.reason = 'purchase_cta_not_free';
+      result.details = `Purchase button: ${btnText || 'unknown'}`;
+      console.log(`  ⚠️ Skipping non-free purchase button: "${btnText || 'unknown'}".`);
+      return result;
+    }
+
     if (cfg.dryrun) {
       result.status = 'dryrun_skipped';
       result.reason = 'dryrun_enabled';
@@ -267,9 +313,16 @@ async function claimSingleGame(page, url, attempt = 1) {
       return result;
     }
 
-    btnText = await getLocatorText(purchaseBtn);
-    console.log(`  Clicking "${btnText || 'get'}"...`);
-    await purchaseBtn.click({ delay: 50 });
+    const clickResult = await clickFreePurchaseCta(purchaseBtn);
+    btnText = clickResult.text;
+    if (!clickResult.clicked) {
+      result.status = 'not_free';
+      result.reason = 'purchase_cta_changed_before_click';
+      result.details = `Purchase button: ${btnText || 'unknown'}`;
+      console.log(`  ⚠️ Purchase button changed before click: "${btnText || 'unknown'}".`);
+      return result;
+    }
+    console.log(`  Clicked "${btnText}".`);
     await autoHandlePagePrompts(page);
 
     const checkoutSurface = await waitForCheckoutSurface(page, purchaseBtn, cfg.checkoutTimeout);
@@ -316,9 +369,7 @@ async function claimSingleGame(page, url, attempt = 1) {
       return result;
     }
 
-    const placeOrderBtn = iframe.locator(
-      'button:has-text("Place Order"):not(:has(.payment-loading--loading))'
-    );
+    const placeOrderBtn = getCheckoutSubmitButton(iframe);
     try {
       await placeOrderBtn.click({ delay: 50 });
     } catch (err) {
@@ -542,9 +593,7 @@ async function waitForPlaceOrderReady(page, iframe, timeoutMs) {
     }
 
     try {
-      const placeOrderBtn = iframe.locator(
-        'button:has-text("Place Order"):not(:has(.payment-loading--loading))'
-      );
+      const placeOrderBtn = getCheckoutSubmitButton(iframe);
       if ((await placeOrderBtn.count()) > 0 && (await placeOrderBtn.first().isVisible())) {
         return { status: 'place_order_ready', reason: 'place_order_button_visible' };
       }
@@ -556,6 +605,13 @@ async function waitForPlaceOrderReady(page, iframe, timeoutMs) {
   }
 
   return { status: 'place_order_not_found', reason: 'place_order_button_not_visible_in_time' };
+}
+
+function getCheckoutSubmitButton(iframe) {
+  return iframe
+    .getByRole('button', { name: CHECKOUT_SUBMIT_NAME })
+    .filter({ hasNot: iframe.locator('.payment-loading--loading') })
+    .first();
 }
 
 async function waitForClaimOutcome(page, iframe, purchaseBtn, timeoutMs) {
@@ -717,6 +773,16 @@ async function getLocatorText(locator) {
   } catch {
     return '';
   }
+}
+
+export async function waitForPurchaseCtaText(locator, timeoutMs) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const text = await getLocatorText(locator);
+    if (text && !/^loading(?:\.\.\.|…)?$/.test(text)) return text;
+    await sleep(100);
+  }
+  return '';
 }
 
 async function maybeClick(locator) {

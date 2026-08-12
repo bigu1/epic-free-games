@@ -21,6 +21,8 @@
 
 ## 快速开始
 
+需要 Node.js 20.19 或更高版本。
+
 ```bash
 git clone https://github.com/bigu1/epic-free-games.git
 cd epic-free-games
@@ -78,16 +80,17 @@ cp .env.example .env
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `EG_EMAIL` | 否 | Epic Games 账号邮箱（用于自动登录） |
-| `EG_PASSWORD` | 否 | Epic Games 密码 |
+| `EG_EMAIL` | GitHub Actions 必填 | Epic Games 账号邮箱（用于自动登录） |
+| `EG_PASSWORD` | GitHub Actions 必填 | Epic Games 密码 |
 | `EG_OTPKEY` | 否 | 2FA TOTP 密钥 |
+| `EG_PARENTALPIN` | 否 | 家长控制 PIN |
 | `HEADLESS` | 否 | `0` 显示浏览器，`1` 后台运行 |
 | `CHECKOUT_TIMEOUT` | 否 | Checkout / Place Order 等待超时毫秒数（默认 `60000`） |
 | `WEBHOOK_URL` | 否 | 通知 Webhook 地址 |
 | `DRYRUN` | 否 | `1` 仅模拟，不实际领取 |
 | `DATA_DIR` | 否 | 自定义数据目录（默认：`./data`） |
 
-> 凭据不是必填的，也可以使用 `--login` 手动登录。
+> 本机运行可以使用 `--login` 手动登录；GitHub Actions 的 runner 不保存会话，因此必须配置 `EG_EMAIL` 和 `EG_PASSWORD`。
 
 ---
 
@@ -98,15 +101,18 @@ cp .env.example .env
 Epic 通常在每周四更新免费游戏：
 
 ```bash
-# 每周四 00:30
-30 0 * * 4 cd /path/to/epic-free-games && node src/index.js --claim >> /tmp/epic-free-games.log 2>&1
+# cron 使用服务器本地时区；下面示例假定服务器为 UTC
+# 每周四 17:00 UTC（北京时间周五 01:00）
+0 17 * * 4 cd /path/to/epic-free-games && node src/index.js --claim >> /tmp/epic-free-games.log 2>&1
 ```
 
 ### GitHub Actions
 
 1. Fork 本仓库
-2. 进入 Settings → Secrets，添加：`EG_EMAIL`、`EG_PASSWORD`、`EG_OTPKEY`、`WEBHOOK_URL`
+2. 进入 Settings → Secrets and variables → Actions，至少添加 `EG_EMAIL`、`EG_PASSWORD`；按需添加 `EG_OTPKEY`、`EG_PARENTALPIN`、`WEBHOOK_URL`
 3. 启用 Actions 工作流
+
+领取失败会让工作流变红；验证码需要手动处理。出于安全考虑，公开仓库的 Actions 不缓存登录 profile，也不上传可能含账号信息的截图。
 
 ### OpenClaw Skill
 
@@ -203,6 +209,10 @@ epic-free-games/
 
 **日志里看到带 security check / Cloudflare 信息的 `captcha_blocked`**  
 说明 Epic 在 Place Order 出现前拦截了 checkout iframe。请运行 `HEADLESS=0 node src/index.js --claim-visible`，在可见浏览器里手动完成验证，或换更干净的网络 / session 后重试。
+
+**GitHub Actions 是绿的，但有没有真的领取？**
+
+当前版本只有 `claimed`、`already_owned` 或 `dryrun_skipped` 才会成功退出；未登录、验证码和领取失败都会让工作流变红。
 
 **浏览器崩溃 / 页面关闭**  
 确保机器有足够内存（约 500MB 以上）；现在脚本会单独记录 `page_closed`，不会再让截图失败覆盖主因。

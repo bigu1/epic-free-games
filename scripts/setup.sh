@@ -16,9 +16,8 @@ if ! command -v node &>/dev/null; then
   exit 1
 fi
 
-NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-if [ "$NODE_VERSION" -lt 18 ]; then
-  echo "❌ Node.js >= 18 is required (found: $(node -v))"
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 20 || (major === 20 && minor >= 19) ? 0 : 1)'; then
+  echo "❌ Node.js >= 20.19 is required (found: $(node -v))"
   exit 1
 fi
 echo "✅ Node.js $(node -v)"

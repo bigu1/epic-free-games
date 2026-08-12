@@ -15,6 +15,7 @@ function ensureDir(dir) {
 }
 
 const dataDir = path.resolve(process.env.DATA_DIR || path.join(projectRoot, 'data'));
+const browserDir = path.resolve(process.env.BROWSER_DIR || path.join(dataDir, 'browser-profile'));
 
 /**
  * Load accounts from config file or environment variables.
@@ -77,10 +78,11 @@ export const cfg = {
 
   // Browser
   headless: process.env.HEADLESS !== '0',
-  browserDir: ensureDir(process.env.BROWSER_DIR || path.join(dataDir, 'browser-profile')),
+  browserDir,
   width: parseInt(process.env.WIDTH || '1280', 10),
   height: parseInt(process.env.HEIGHT || '720', 10),
   timeout: parseInt(process.env.TIMEOUT || '30000', 10),
+  checkoutTimeout: parseInt(process.env.CHECKOUT_TIMEOUT || '60000', 10),
   loginTimeout: parseInt(process.env.LOGIN_TIMEOUT || '180000', 10), // 3 minutes for manual login
 
   // Parental control PIN (if enabled on Epic account)
@@ -90,7 +92,7 @@ export const cfg = {
   dir: {
     data: ensureDir(dataDir),
     screenshots: ensureDir(path.join(dataDir, 'screenshots')),
-    browser: ensureDir(process.env.BROWSER_DIR || path.join(dataDir, 'browser-profile')),
+    browser: browserDir,
   },
 
   // Notification

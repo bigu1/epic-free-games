@@ -13,13 +13,14 @@
 import { cfg } from './config.js';
 import { fetchFreeGames } from './epic-api.js';
 import { launchBrowser, isLoggedIn, getLoginUser, login, claimFreeGames } from './claimer.js';
-import { notify, notifyClaimResults } from './notifier.js';
+import { notify, notifyClaimResults, hasClaimFailures } from './notifier.js';
 import { datetime, jsonDb, formatGameList } from './utils.js';
 import path from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 
 const args = process.argv.slice(2);
 const command = args.find((a) => a.startsWith('--'))?.replace('--', '') || 'claim';
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 function getArgValue(flag) {
   const eq = args.find((a) => a.startsWith(`${flag}=`));
@@ -32,7 +33,9 @@ function getArgValue(flag) {
 }
 
 async function main() {
-  console.log(`[${datetime()}] epic-free-games v0.1.0`);
+  if (command !== 'list' || !args.includes('--json')) {
+    console.log(`[${datetime()}] epic-free-games v${version}`);
+  }
 
   switch (command) {
     case 'list':
@@ -68,22 +71,23 @@ async function main() {
  * --list: Query and display current/upcoming free games (no auth needed).
  */
 async function cmdList() {
-  console.log('Fetching free games from Epic Games Store...\n');
+  const json = args.includes('--json');
+  if (!json) console.log('Fetching free games from Epic Games Store...\n');
   const { current, upcoming } = await fetchFreeGames({
     locale: cfg.locale,
     country: cfg.country,
   });
+
+  if (json) {
+    console.log(JSON.stringify({ current, upcoming }, null, 2));
+    return;
+  }
 
   console.log('🎮 Current Free Games:');
   console.log(formatGameList(current) || '  (none)');
   console.log('');
   console.log('🔜 Upcoming Free Games:');
   console.log(formatGameList(upcoming) || '  (none)');
-
-  if (args.includes('--json')) {
-    console.log('\n--- JSON ---');
-    console.log(JSON.stringify({ current, upcoming }, null, 2));
-  }
 }
 
 /**
@@ -106,6 +110,7 @@ async function cmdLogin() {
 async function cmdClaim(options = {}) {
   const singleUrl = options.singleUrl || '';
   const requestedHeadless = options.headless;
+  let gameUrls = singleUrl ? [singleUrl] : undefined;
 
   if (singleUrl) {
     console.log(`Single-game mode: ${singleUrl}`);
@@ -120,6 +125,7 @@ async function cmdClaim(options = {}) {
         await notify('No free games available on Epic Games Store this week.', { level: 'info' });
         return;
       }
+      gameUrls = current.map((game) => game.storeUrl);
     } catch (err) {
       console.error(`Failed to fetch free games list: ${err.message}`);
       console.log('Will try to detect free games via browser instead.');
@@ -131,16 +137,19 @@ async function cmdClaim(options = {}) {
 
   for (let i = 0; i < accountCount; i++) {
     const account = cfg.accounts[i];
-    const label = account?.email || 'default';
+    const label = accountCount > 1 ? `account ${i + 1}` : 'default';
     if (accountCount > 1) {
       console.log(
         `\n${'='.repeat(50)}\nAccount ${i + 1}/${accountCount}: ${label}\n${'='.repeat(50)}`
       );
     }
 
-    const browserDir = cfg.getBrowserDir(i);
-    const { context, page } = await launchBrowser({ browserDir, headless: requestedHeadless });
+    let context;
     try {
+      const browserDir = cfg.getBrowserDir(i);
+      const browser = await launchBrowser({ browserDir, headless: requestedHeadless });
+      context = browser.context;
+      const { page } = browser;
       const loggedIn = await isLoggedIn(page);
       if (!loggedIn) {
         console.log('Not logged in. Attempting login...');
@@ -150,25 +159,45 @@ async function cmdClaim(options = {}) {
           cfg.eg_otpkey = account.otpkey || '';
           await login(page);
         } else {
-          await notify(
-            `Epic Games session expired for ${label}. Please run: node src/index.js --login`,
-            { level: 'warning' }
-          );
+          const results = [
+            {
+              title: label,
+              status: 'not_logged_in',
+              reason: 'credentials_not_configured',
+              manualRequired: true,
+              details: 'Run --login or configure EG_EMAIL and EG_PASSWORD.',
+            },
+          ];
           console.error(
             `\n❌ Not logged in for ${label} and no credentials configured.\n` +
               'Run with --login first, or set credentials in .env / data/config.json'
           );
+          allResults.push({ account: label, results });
+          await notifyClaimResults(results);
           continue;
         }
       }
 
       const results = await claimFreeGames(page, {
-        gameUrls: singleUrl ? [singleUrl] : undefined,
+        gameUrls,
       });
       allResults.push({ account: label, results });
       await notifyClaimResults(results);
+    } catch (err) {
+      const results = [
+        {
+          title: label,
+          status: 'error',
+          reason: 'account_processing_failed',
+          details: err.message,
+        },
+      ];
+      allResults.push({ account: label, results });
+      await notifyClaimResults(results);
     } finally {
-      await context.close();
+      await context?.close().catch((err) => {
+        console.warn(`Failed to close browser: ${err.message}`);
+      });
     }
   }
 
@@ -178,6 +207,10 @@ async function cmdClaim(options = {}) {
     accounts: allResults,
   });
   db.save();
+
+  if (allResults.some(({ results }) => hasClaimFailures(results))) {
+    process.exitCode = 1;
+  }
 }
 
 /**

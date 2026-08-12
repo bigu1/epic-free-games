@@ -30,7 +30,7 @@ export async function notify(message, { level = 'info' } = {}) {
  */
 export async function notifyClaimResults(results) {
   if (!results.length) {
-    await notify('No free games available this week.', { level: 'info' });
+    await notify('Could not discover any games to verify.', { level: 'error' });
     return;
   }
 
@@ -38,13 +38,17 @@ export async function notifyClaimResults(results) {
   const claimed = results.filter((r) => r.status === 'claimed').length;
   const total = results.length;
 
-  const hasHardFailure = results.some((r) => isFailureStatus(r.status));
+  const hasHardFailure = hasClaimFailures(results);
   const hasManual = results.some((r) => r.manualRequired || r.status === 'captcha_blocked');
 
   const level = hasManual ? 'warning' : hasHardFailure ? 'error' : claimed > 0 ? 'success' : 'info';
   const summary = `Claimed ${claimed}/${total} free games:\n${lines.join('\n')}`;
 
   await notify(summary, { level });
+}
+
+export function hasClaimFailures(results) {
+  return !results.length || results.some((r) => r.manualRequired || isFailureStatus(r.status));
 }
 
 function formatResultLine(result) {
